@@ -14,7 +14,7 @@ REG_PHONE = State("reg_phone")
 REG_CITY = State("reg_city")
 EDIT = State("edit")
 
-# Пользователи в памяти (заглушка вместо БД)
+# Заглушка вместо БД
 USERS: dict[int, dict[str, str]] = {}
 
 FIELDS = {"name": "Имя", "phone": "Телефон", "city": "Город"}
