@@ -21,3 +21,10 @@ def parse_field(field: str, text: str | None) -> tuple[str | None, str]:
     if len(text) > 64:
         return None, "Максимум 64 символа"
     return text, ""
+
+def md(value) -> str:
+    MD_SPECIAL = "*_~+`[]^#>"
+    text = str(value) if value else "—"
+    for ch in MD_SPECIAL:
+        text = text.replace(ch, "")
+    return text or "—"
