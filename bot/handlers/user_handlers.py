@@ -1,5 +1,7 @@
 from maxo import Router
+
 from maxo.fsm import FSMContext, StateFilter
+from datetime import datetime, timezone
 
 from maxo.routing.filters import Command, CommandStart
 from maxo.types import BotStarted, MessageCallback, MessageCreated
@@ -8,10 +10,13 @@ from ..states.user_states import *
 from ..keyboards.user_keyboards import *
 import utils.parsers as parsers
 
-# Заглушка вместо БД
-USERS: dict[int, dict[str, str]] = {}
+
+from data.models import User
+from data.crud import get_user_by_id, create_user, set_user_name, set_user_phone, set_user_city
+from data import SessionDep
 
 FIELDS = {"name": "Имя", "phone": "Телефон", "city": "Город"}
+SETTERS = {"name": set_user_name, "phone": set_user_phone, "city": set_user_city}
 STUB = "Раздел в разработке"
 NOT_REGISTERED = "Сначала зарегистрируйтесь: /start"
 
@@ -19,15 +24,16 @@ router = Router()
 
 
 # Текст карточки профиля
-def profile_text(user: dict[str, str]) -> str:
-    lines = [f"{title}: {user[key]}" for key, title in FIELDS.items()]
+def profile_text(user: User) -> str:
+    values = {"name": user.name, "phone": user.phone_number, "city": user.city}
+    lines = [f"{title}: {values[key]}" for key, title in FIELDS.items()]
     return "Ваш профиль\n\n" + "\n".join(lines)
 
 
 # Старт: зарегистрированному меню, новому анкета
-async def start(user_id: int, send, fsm_context: FSMContext) -> None:
+async def start(user_id: int, send, fsm_context: FSMContext, session: SessionDep) -> None:
     await fsm_context.clear()
-    user = USERS.get(user_id)
+    user = await get_user_by_id(user_id, session)
     if user:
         await send(text="Главное меню", keyboard=main_menu_kb())
         return
@@ -37,20 +43,21 @@ async def start(user_id: int, send, fsm_context: FSMContext) -> None:
 
 # Нажатие Начать
 @router.bot_started()
-async def on_bot_started(event: BotStarted, fsm_context: FSMContext) -> None:
-    await start(event.user.user_id, event.send_message, fsm_context)
+async def on_bot_started(event: BotStarted, fsm_context: FSMContext, session: SessionDep) -> None:
+    await start(event.user.user_id, event.send_message, fsm_context, session)
 
 
 # /start
 @router.message_created(CommandStart())
-async def on_start(message: MessageCreated, fsm_context: FSMContext) -> None:
-    await start(message.user_id, message.answer, fsm_context)
+async def on_start(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    await start(message.user_id, message.answer, fsm_context, session)
 
 
 # /menu
 @router.message_created(Command("menu"))
-async def on_menu(message: MessageCreated) -> None:
-    if not USERS.get(message.user_id):
+async def on_menu(message: MessageCreated, session: SessionDep) -> None:
+    user = await get_user_by_id(message.user_id, session)
+    if not user:
         await message.answer(NOT_REGISTERED)
         return
     await message.answer(text="Главное меню", keyboard=main_menu_kb())
@@ -88,23 +95,26 @@ async def reg_phone(message: MessageCreated, fsm_context: FSMContext) -> None:
 
 # Регистрация: город, сохранение пользователя
 @router.message_created(StateFilter(REG_CITY))
-async def reg_city(message: MessageCreated, fsm_context: FSMContext) -> None:
+async def reg_city(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
     value, error = parsers.parse_field("city", message.text)
     if not value:
         await message.answer(error)
         return
     data = await fsm_context.get_data()
-    USERS[message.user_id] = {"name": data["name"], "phone": data["phone"], "city": value}
+    sender = message.message.sender
+    user_name = getattr(sender, "username", None) or getattr(sender, "fullname", None) or str(message.user_id)
+    await create_user(User(id=message.user_id, name=data["name"], user_name=user_name, phone_number=data["phone"], city=value, creation_date=datetime.now(timezone.utc)), session)
     await fsm_context.clear()
     await message.answer(text="Регистрация завершена", keyboard=main_menu_kb())
+
 
 
 # Все нажатия кнопок.
 # В MAX пустой callback_answer() запрещён: нужен notification или message.
 # Если сообщение уже отредактировано через edit_message, отвечать не нужно.
 @router.message_callback()
-async def on_callback(cb: MessageCallback, fsm_context: FSMContext) -> None:
-    user = USERS.get(cb.user.user_id)
+async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: SessionDep) -> None:
+    user = await get_user_by_id(cb.user.user_id, session)
     if not user:
         await cb.callback_answer(notification=NOT_REGISTERED)
         return
@@ -138,25 +148,26 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext) -> None:
 
 # Сохранение нового значения поля профиля
 @router.message_created(StateFilter(EDIT))
-async def edit_value(message: MessageCreated, fsm_context: FSMContext) -> None:
+async def edit_value(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
     field = await fsm_context.get_value("field")
     value, error = parsers.parse_field(field, message.text)
     if not value:
         await message.answer(error)
         return
-    user = USERS.get(message.user_id)
+    user = await get_user_by_id(message.user_id, session)
     await fsm_context.clear()
     if not user:
         await message.answer(NOT_REGISTERED)
         return
-    user[field] = value
+    await SETTERS[field](message.user_id, value, session)
     await message.answer(text=f"Сохранено\n\n{profile_text(user)}", keyboard=profile_kb())
 
 
 # Любое другое сообщение
 @router.message_created()
-async def unknown_message(message: MessageCreated) -> None:
-    if not USERS.get(message.user_id):
+async def unknown_message(message: MessageCreated, session: SessionDep) -> None:
+    user = await get_user_by_id(message.user_id, session)
+    if not user:
         await message.answer(NOT_REGISTERED)
         return
     await message.answer(text="Воспользуйтесь меню", keyboard=main_menu_kb())

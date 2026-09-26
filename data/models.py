@@ -8,11 +8,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer ,primary_key=True)
-    name: Mapped[str] = mapped_column(String)
+    name: Mapped[str | None] = mapped_column(String)
     user_name: Mapped[str] = mapped_column(String)
     phone_number: Mapped[str] = mapped_column(String)
     city:  Mapped[str] = mapped_column(String)
-    creation_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+    creation_date: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True))
 
 class Place(Base):
     __tablename__ = "places"
@@ -28,7 +28,7 @@ class Place(Base):
     creation_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
 
 class SavedObject(Base):
-    __tablename__ = "saved_objects"
+    __tablename__ = "saved_objects" 
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     object_id: Mapped[int] = mapped_column(ForeignKey("places.id"))
