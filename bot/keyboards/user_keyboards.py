@@ -29,9 +29,50 @@ def profile_kb():
 
 
 # Кнопка отмены при редактировании поля профиля
-def cancel_edit_kb():
+def cancel_edit_kb(): # todo мб стоит переименовать чтобы подчеркнуть что это именно для редактирования профиля
     return (
         KeyboardBuilder()
         .add_callback(text="Отмена", payload="menu:profile")
+        .build()
+    )
+
+# Кнопка отмены при создании объекта
+def cancel_object_creation_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Отмена", payload="menu:objects")
+        .build()
+    )
+
+# Клавиатура экрана объектов если у пользователя нет объектов
+def no_created_objects_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Создать новый", payload="object:new")
+        .add_callback(text="Назад", payload="menu:main")
+        .build()
+    )
+
+def confirm_object_creation_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Подтвердить", payload="object:confirm")
+        .add_callback(text="Отмена", payload="menu:objects")
+        .build()
+    )
+
+# Клавиатура выбора города (по идее можно использовать не только для создания объекта)
+def cities_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Москва", payload="city:moscow")
+        .add_callback(text="Санкт-Петербург", payload="city:SPetersburg")
+        .add_callback(text="Екатеринбург", payload="city:Yekaterinburg")
+        .add_callback(text="Новосибирск", payload="city:Novosibirsk")
+        .add_callback(text="Калининград", payload="city:Kaliningrad")
+        .add_callback(text="Казань", payload="city:Kazan")
+        .add_callback(text="Краснодар", payload="city:Krasnodar")
+        .add_callback(text="Отмена", payload="menu:objects")
+        .adjust(1)
         .build()
     )

@@ -88,3 +88,17 @@ async def create_user(user: User, session: SessionDep):
 async def get_all_addresses(session: SessionDep):
     result = await session.execute(select(Place.address))
     return result.scalars()
+
+# Выбор объекта по id
+async def get_place_by_id(id: int, session: SessionDep) -> User | None:
+    return await session.get(Place, id)
+
+# Добавить объект
+async def create_place(place: Place, session: SessionDep):
+    if await exists(await get_place_by_id(place.id, session)):
+        return "Error"
+
+    session.add(place)
+    await session.commit()
+    await session.refresh(place)
+    return None
