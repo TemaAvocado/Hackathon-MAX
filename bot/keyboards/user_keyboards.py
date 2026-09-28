@@ -5,7 +5,7 @@ from maxo.utils.builders import KeyboardBuilder
 def main_menu_kb():
     return (
         KeyboardBuilder()
-        .add_callback(text="🔎 Смотреть объекты", payload="menu:app")
+        .add_callback(text="🔎 Смотреть объекты", payload="menu:change")
         .add_callback(text="👤 Профиль", payload="menu:profile")
         .add_callback(text="🏢 Мои объекты", payload="menu:objects")
         .add_callback(text="❤️ Избранное", payload="menu:favorites")
@@ -72,7 +72,42 @@ def cities_kb():
         .add_callback(text="Калининград", payload="city:Kaliningrad")
         .add_callback(text="Казань", payload="city:Kazan")
         .add_callback(text="Краснодар", payload="city:Krasnodar")
-        .add_callback(text="Отмена", payload="menu:objects")
+        .add_callback(text="Отмена", payload="menu:main")
         .adjust(1)
         .build()
     )
+
+# Клавиатура карточки объекта
+def place_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="В меню", payload="menu:main")
+        .build()
+    )
+
+# Клавиатура объектов города: по кнопке на объект + вперед/назад
+def city_objects_kb(places, city, page, pages_count):
+    kb = KeyboardBuilder()
+    for place in places:
+        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}")
+    kb.adjust(1)
+
+    nav = KeyboardBuilder()
+    if page > 0:
+        nav.add_callback(text="⬅️ Назад", payload=f"city:{city}:{page - 1}")
+    if page < pages_count - 1:
+        nav.add_callback(text="Вперед ➡️", payload=f"city:{city}:{page + 1}")
+    kb.attach(nav)
+
+    kb.attach(KeyboardBuilder().add_callback(text="К городам", payload="menu:change"))
+    return kb.build()
+
+# Клавиатура моих объектов
+def my_objects_kb(places, can_create):
+    kb = KeyboardBuilder()
+    for place in places:
+        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}")
+    if can_create:
+        kb.add_callback(text="Создать новый", payload="object:new")
+    kb.add_callback(text="В меню", payload="menu:main")
+    return kb.adjust(1).build()

@@ -102,3 +102,8 @@ async def create_place(place: Place, session: SessionDep):
     await session.commit()
     await session.refresh(place)
     return None
+
+# Получить все объекты города
+async def get_city_places(city: str, session: SessionDep):
+    result = await session.execute(select(Place).where(Place.city == city))
+    return result.scalars().all()

@@ -8,7 +8,7 @@ from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachm
 from maxo.enums import TextFormat
 
 from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT, NO_CREATED_OBJECTS, OBJECT_SET_CITY, OBJECT_SET_ADDRESS, OBJECT_SET_DESCRIPTION, OBJECT_LOAD_PHOTO, OBJECT_LOAD_DOCUMENTS, OBJECT_SET_PRICE, OBJECT_CONFIRM
-from ..keyboards.user_keyboards import main_menu_kb, profile_kb, cancel_edit_kb, no_created_objects_kb, cities_kb, cancel_object_creation_kb, confirm_object_creation_kb
+from ..keyboards.user_keyboards import main_menu_kb, profile_kb, cancel_edit_kb, no_created_objects_kb, cities_kb, cancel_object_creation_kb, confirm_object_creation_kb, city_objects_kb, my_objects_kb, place_kb
 import utils.parsers as parsers
 import utils.utils as utils
 from config import USERS_FILES_FOLDER_PATH
@@ -22,6 +22,8 @@ SETTERS = {"name": db.set_user_name, "phone": db.set_user_phone, "city": db.set_
 STUB = "Раздел в разработке"
 NOT_REGISTERED = "Сначала зарегистрируйтесь: /start"
 OUTDATED = "Кнопка устарела, откройте /menu"
+PAGE_SIZE = 5
+MAX_OBJECTS = 6
 
 NO_CREATED_OBJECTS_TEXT = """У вас пока нет созданных объектов. хотите создать новый?"""
 
@@ -253,11 +255,19 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
         if user_places == "Error":
             pass # todo хэндлер ошибки
         elif len(user_places) != 0:
-            await cb.callback_answer(notification=STUB) # заглушка если у пользователя есть объекты
+            await fsm_context.clear()
+            await cb.edit_message(
+                text=f"Ваши объекты ({len(user_places)}/{MAX_OBJECTS})",
+                keyboard=my_objects_kb(user_places, len(user_places) < MAX_OBJECTS),
+            )
         else:
             await fsm_context.clear()
             await fsm_context.set_state(NO_CREATED_OBJECTS)
             await cb.edit_message(text=NO_CREATED_OBJECTS_TEXT, keyboard=no_created_objects_kb())
+
+    elif payload == "menu:change": # смотреть объекты: выбор города
+        await fsm_context.clear()
+        await cb.edit_message(text="Выберите город:", keyboard=cities_kb())
 
     elif payload.startswith("edit:"):
         field = payload.split(":", 1)[1]
@@ -274,6 +284,9 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
     elif payload.startswith("object:"): # обработка приколов про объекты
         field = payload.split(":", 1)[1]
         if field == "new":
+            if len(await db.get_user_places(user.id, session)) >= MAX_OBJECTS:
+                await cb.callback_answer(notification=f"Можно создать не больше {MAX_OBJECTS} объектов")
+                return
             await fsm_context.set_state(OBJECT_SET_CITY)
             await cb.edit_message(text="Введите город", keyboard=cities_kb())
         if field == "confirm":
@@ -285,20 +298,47 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
                     address = data["address"],
                     cost = data["price"],
                     description = data["description"],
-                    photo = "".join(data["photos"]),
+                    photo = ",".join(data["photos"]),
                     url_documents = data["documents"],
                     creation_date = datetime.now(timezone.utc)
                 ), session
             )
             await fsm_context.clear()
             await cb.edit_message(text=f"Объект создан\n\n{MAIN_MENU_TEXT}", keyboard=main_menu_kb(), format=TextFormat.MARKDOWN)
+        if field.isdigit(): # карточка объекта, payload = object:{id}
+            place = await db.get_place_by_id(int(field), session)
+            if not place:
+                await cb.callback_answer(notification=OUTDATED)
+                return
+            owner = await db.get_user_by_id(place.user_id, session)
+            photos = [PhotoAttachmentRequest(payload=PhotoAttachmentRequestPayload(token=t)) for t in place.photo.split(",") if t]
+            await cb.edit_message(text=f"""Адрес: {place.address}
+Цена: {int(place.cost)} ₽
+Описание: {place.description}
+Документы: {place.url_documents}
 
-    elif payload.startswith("city:"):
-        city = payload.split(":", 1)[1] # города на английском языке
+Владелец: {owner.name}
+Телефон: {owner.phone_number}""", attachments=photos, keyboard=place_kb())
+
+    elif payload.startswith("city:"): # city:{city} или city:{city}:{page}
+        parts = payload.split(":")
+        city = parts[1] # города на английском языке
         if await fsm_context.get_state() == OBJECT_SET_CITY:
             await fsm_context.update_data(city=city)
             await fsm_context.set_state(OBJECT_SET_ADDRESS)
             await cb.edit_message(text="Введите адрес", keyboard=cancel_object_creation_kb())
+        else: # просмотр объектов города
+            page = int(parts[2]) if len(parts) == 3 else 0
+            places = await db.get_city_places(city, session)
+            if not places:
+                await cb.callback_answer(notification="В этом городе пока нет объектов")
+                return
+            pages_count = (len(places) + PAGE_SIZE - 1) // PAGE_SIZE
+            page_places = places[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+            await cb.edit_message(
+                text=f"Объекты (стр. {page + 1}/{pages_count})",
+                keyboard=city_objects_kb(page_places, city, page, pages_count),
+            )
 
     elif payload.startswith("menu:"):
         await cb.callback_answer(notification=STUB)
