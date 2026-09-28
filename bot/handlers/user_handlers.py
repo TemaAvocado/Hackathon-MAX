@@ -4,7 +4,7 @@ from pathlib import Path
 from maxo import Router
 from maxo.fsm import FSMContext, StateFilter
 from maxo.routing.filters import Command, CommandStart
-from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, AttachmentsRequests
+from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, MediaAttachmentsRequests
 from maxo.enums import TextFormat
 
 from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT, NO_CREATED_OBJECTS, OBJECT_SET_CITY, OBJECT_SET_ADDRESS, OBJECT_SET_DESCRIPTION, OBJECT_LOAD_PHOTO, OBJECT_LOAD_DOCUMENTS, OBJECT_SET_PRICE, OBJECT_CONFIRM
@@ -189,61 +189,44 @@ async def object_load_photo(message: MessageCreated, fsm_context: FSMContext, se
                 pass # todo обработчик ошибок (если api макса не отвечает код 200)
     await fsm_context.update_data(photos=tokens)
     await fsm_context.set_state(OBJECT_LOAD_DOCUMENTS)
-    await message.answer("Загрузите документы (Максимум 5, если вы загрузите больше, примутся только первые 5)", keyboard=cancel_object_creation_kb())
+    await message.answer("Загрузите ссылку на документы (например Яндекс диск)", keyboard=cancel_object_creation_kb())
 
 # Создание объекта: ввод документов
 @router.message_created(StateFilter(OBJECT_LOAD_DOCUMENTS))
-async def object_load_photo(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
-    paths = []
-    tokens = []
-    for attachment in message.message.body.attachments:
-        if attachment.type == "file" and len(paths) < 5:
-            path = await utils.download(attachment, USERS_FILES_FOLDER_PATH)
-            if path != "api error":
-                paths.append(path)
-                tokens.append(attachment.payload.token)
-            else:
-                pass # todo обработчик ошибок (если api макса не отвечает код 200)
-    await fsm_context.update_data(documents=tokens)
+async def object_load_documents(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    value, error = parsers.parse_field("documents_link", message.text)
+    if not value:
+        await message.answer(error)
+        return
+    await fsm_context.update_data(documents=value)
     await fsm_context.set_state(OBJECT_SET_PRICE)
     await message.answer("введите цену", keyboard=cancel_object_creation_kb())
 
 # Создание объекта: ввод стоимости
 @router.message_created(StateFilter(OBJECT_SET_PRICE))
 async def object_set_price(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
-    value, error = parsers.parse_field("price", message.text)
-    if not value:
-        await message.answer(error)
+    if not message.text.isdigit():
+        await message.answer("введи циферки, Тёмочка")
         return
+
+    await fsm_context.update_data(price=float(message.text))
+    await fsm_context.set_state(OBJECT_CONFIRM)
     data = await fsm_context.get_data()
     photo_requests = []
-    doc_requests = []
     for i in data["photos"]:
         photo_requests.append(
             PhotoAttachmentRequest(
                 payload=PhotoAttachmentRequestPayload(token=i)
             )
         )
-    for i in data["documents"]:
-        doc_requests.append(
-            FileAttachmentRequest(
-                file=UploadEndpoint(path.read_bytes(), filename=path.name)
-            )
-        )
-    photo_attachments = AttachmentsRequests(photo=photo_requests)
-    doc_attachments = AttachmentsRequests(file=doc_requests)
-
-    await fsm_context.update_data(price=value)
-    await fsm_context.set_state(OBJECT_CONFIRM)
-    await message.answer(f"""Подтвердите создание объекта:
+    await message.answer(text=f"""Подтвердите создание объекта:
 Город: {data["city"]}
 Адрес: {data["address"]}
 Описание: {data["description"]}
+документы: {data["documents"]}
 Цена: {data["price"]}
 ниже приведены фото и документы
-""")
-    await message.answer(attachments=photo_attachments)
-    await message.answer(attachments=doc_attachments, keyboard=confirm_object_creation_kb())
+""", attachments=photo_requests, keyboard=confirm_object_creation_kb())
 
 # Все нажатия кнопок.
 # В MAX пустой callback_answer() запрещён: нужен notification или message.
@@ -297,12 +280,13 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
             data = await fsm_context.get_data()
             await db.create_place(
                 Place(
-                    user_id = User.id,
+                    user = user,
+                    city = data["city"],
                     address = data["address"],
                     cost = data["price"],
                     description = data["description"],
                     photo = "".join(data["photos"]),
-                    downloaded_documents = "".join(data["documents"]),
+                    url_documents = data["documents"],
                     creation_date = datetime.now(timezone.utc)
                 ), session
             )

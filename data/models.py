@@ -20,11 +20,12 @@ class Place(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     user: Mapped["User"] = relationship("User")
+    city: Mapped[str] = mapped_column(String)
     address: Mapped[str] = mapped_column(String)
     cost: Mapped[float] = mapped_column(Float)
     description: Mapped[str] = mapped_column(Text)
     photo: Mapped[str] = mapped_column(String)
-    downloaded_documents: Mapped[str] = mapped_column(String)
+    url_documents: Mapped[str] = mapped_column(String)
     creation_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
 
 class SavedObject(Base):
