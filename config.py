@@ -19,3 +19,5 @@ def init_logger():
     )
     logging.getLogger("aiogram").setLevel(logging.ERROR)
     logging.info(msg="Логи подключены")
+
+USERS_FILES_FOLDER_PATH = "users_files"

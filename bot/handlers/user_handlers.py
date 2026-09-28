@@ -1,16 +1,19 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from maxo import Router
 from maxo.fsm import FSMContext, StateFilter
 from maxo.routing.filters import Command, CommandStart
-from maxo.types import BotStarted, MessageCallback, MessageCreated
+from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, MediaAttachmentsRequests
 from maxo.enums import TextFormat
 
-from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT
-from ..keyboards.user_keyboards import main_menu_kb, profile_kb, cancel_edit_kb
+from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT, NO_CREATED_OBJECTS, OBJECT_SET_CITY, OBJECT_SET_ADDRESS, OBJECT_SET_DESCRIPTION, OBJECT_LOAD_PHOTO, OBJECT_LOAD_DOCUMENTS, OBJECT_SET_PRICE, OBJECT_CONFIRM
+from ..keyboards.user_keyboards import main_menu_kb, profile_kb, cancel_edit_kb, no_created_objects_kb, cities_kb, cancel_object_creation_kb, confirm_object_creation_kb
 import utils.parsers as parsers
+import utils.utils as utils
+from config import USERS_FILES_FOLDER_PATH
 
-from data.models import User
+from data.models import User, Place
 import data.crud as db
 from data import SessionDep
 
@@ -19,6 +22,8 @@ SETTERS = {"name": db.set_user_name, "phone": db.set_user_phone, "city": db.set_
 STUB = "Раздел в разработке"
 NOT_REGISTERED = "Сначала зарегистрируйтесь: /start"
 OUTDATED = "Кнопка устарела, откройте /menu"
+
+NO_CREATED_OBJECTS_TEXT = """У вас пока нет созданных объектов. хотите создать новый?"""
 
 MAIN_MENU_TEXT = """🏠 **Главное меню**
 
@@ -147,6 +152,81 @@ async def reg_city(message: MessageCreated, fsm_context: FSMContext, session: Se
     await fsm_context.clear()
     await message.answer(text=f"Регистрация завершена\n\n{MAIN_MENU_TEXT}", keyboard=main_menu_kb(), format=TextFormat.MARKDOWN)
 
+# Создание объекта: ввод адреса
+@router.message_created(StateFilter(OBJECT_SET_ADDRESS))
+async def object_set_address(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    value, error = parsers.parse_field("address", message.text)
+    if not value:
+        await message.answer(error)
+        return
+    await fsm_context.update_data(address=value)
+    await fsm_context.set_state(OBJECT_SET_DESCRIPTION)
+    await message.answer("Введите описание", keyboard=cancel_object_creation_kb())
+
+# Создание объекта: ввод описания
+@router.message_created(StateFilter(OBJECT_SET_DESCRIPTION))
+async def object_set_description(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    value, error = parsers.parse_field("description", message.text)
+    if not value:
+        await message.answer(error)
+        return
+    await fsm_context.update_data(description=value)
+    await fsm_context.set_state(OBJECT_LOAD_PHOTO)
+    await message.answer("Загрузите фото (Максимум 5, если вы загрузите больше, примутся только первые 5)", keyboard=cancel_object_creation_kb())
+
+# Создание объекта: ввод фото
+@router.message_created(StateFilter(OBJECT_LOAD_PHOTO))
+async def object_load_photo(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    paths = []
+    tokens = []
+    for attachment in message.message.body.attachments:
+        if attachment.type in ("image", "video") and len(paths) < 5:
+            path = await utils.download(attachment, USERS_FILES_FOLDER_PATH)
+            if path != "api error":
+                paths.append(path)
+                tokens.append(attachment.payload.token)
+            else:
+                pass # todo обработчик ошибок (если api макса не отвечает код 200)
+    await fsm_context.update_data(photos=tokens)
+    await fsm_context.set_state(OBJECT_LOAD_DOCUMENTS)
+    await message.answer("Загрузите ссылку на документы (например Яндекс диск)", keyboard=cancel_object_creation_kb())
+
+# Создание объекта: ввод документов
+@router.message_created(StateFilter(OBJECT_LOAD_DOCUMENTS))
+async def object_load_documents(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    value, error = parsers.parse_field("documents_link", message.text)
+    if not value:
+        await message.answer(error)
+        return
+    await fsm_context.update_data(documents=value)
+    await fsm_context.set_state(OBJECT_SET_PRICE)
+    await message.answer("введите цену", keyboard=cancel_object_creation_kb())
+
+# Создание объекта: ввод стоимости
+@router.message_created(StateFilter(OBJECT_SET_PRICE))
+async def object_set_price(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
+    if not message.text.isdigit():
+        await message.answer("введи циферки, Тёмочка")
+        return
+
+    await fsm_context.update_data(price=float(message.text))
+    await fsm_context.set_state(OBJECT_CONFIRM)
+    data = await fsm_context.get_data()
+    photo_requests = []
+    for i in data["photos"]:
+        photo_requests.append(
+            PhotoAttachmentRequest(
+                payload=PhotoAttachmentRequestPayload(token=i)
+            )
+        )
+    await message.answer(text=f"""Подтвердите создание объекта:
+Город: {data["city"]}
+Адрес: {data["address"]}
+Описание: {data["description"]}
+документы: {data["documents"]}
+Цена: {data["price"]}
+ниже приведены фото и документы
+""", attachments=photo_requests, keyboard=confirm_object_creation_kb())
 
 # Все нажатия кнопок.
 # В MAX пустой callback_answer() запрещён: нужен notification или message.
@@ -168,6 +248,17 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
         await fsm_context.clear()
         await cb.edit_message(text=profile_text(user), keyboard=profile_kb(), format=TextFormat.MARKDOWN)
 
+    elif payload == "menu:objects":
+        user_places = await db.get_user_places(user.id, session)
+        if user_places == "Error":
+            pass # todo хэндлер ошибки
+        elif len(user_places) != 0:
+            await cb.callback_answer(notification=STUB) # заглушка если у пользователя есть объекты
+        else:
+            await fsm_context.clear()
+            await fsm_context.set_state(NO_CREATED_OBJECTS)
+            await cb.edit_message(text=NO_CREATED_OBJECTS_TEXT, keyboard=no_created_objects_kb())
+
     elif payload.startswith("edit:"):
         field = payload.split(":", 1)[1]
         if field not in FIELDS:
@@ -179,6 +270,35 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
         
 Введите новое значение:''',
             keyboard=cancel_edit_kb(), format=TextFormat.MARKDOWN)
+
+    elif payload.startswith("object:"): # обработка приколов про объекты
+        field = payload.split(":", 1)[1]
+        if field == "new":
+            await fsm_context.set_state(OBJECT_SET_CITY)
+            await cb.edit_message(text="Введите город", keyboard=cities_kb())
+        if field == "confirm":
+            data = await fsm_context.get_data()
+            await db.create_place(
+                Place(
+                    user = user,
+                    city = data["city"],
+                    address = data["address"],
+                    cost = data["price"],
+                    description = data["description"],
+                    photo = "".join(data["photos"]),
+                    url_documents = data["documents"],
+                    creation_date = datetime.now(timezone.utc)
+                ), session
+            )
+            await fsm_context.clear()
+            await cb.edit_message(text=f"Объект создан\n\n{MAIN_MENU_TEXT}", keyboard=main_menu_kb(), format=TextFormat.MARKDOWN)
+
+    elif payload.startswith("city:"):
+        city = payload.split(":", 1)[1] # города на английском языке
+        if await fsm_context.get_state() == OBJECT_SET_CITY:
+            await fsm_context.update_data(city=city)
+            await fsm_context.set_state(OBJECT_SET_ADDRESS)
+            await cb.edit_message(text="Введите адрес", keyboard=cancel_object_creation_kb())
 
     elif payload.startswith("menu:"):
         await cb.callback_answer(notification=STUB)
