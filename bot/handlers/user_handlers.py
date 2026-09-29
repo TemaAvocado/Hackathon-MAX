@@ -6,6 +6,7 @@ from maxo.fsm import FSMContext, StateFilter
 from maxo.routing.filters import Command, CommandStart
 from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, MediaAttachmentsRequests
 from maxo.enums import TextFormat
+from maxo.utils.upload_media import BufferedInputFile
 
 from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT, NO_CREATED_OBJECTS, OBJECT_SET_CITY, OBJECT_SET_ADDRESS, OBJECT_SET_DESCRIPTION, OBJECT_LOAD_PHOTO, OBJECT_LOAD_DOCUMENTS, OBJECT_SET_PRICE, OBJECT_CONFIRM, SEARCH_ID, SEARCH_QR
 from ..keyboards.user_keyboards import main_menu_kb, profile_kb, cancel_edit_kb, no_created_objects_kb, cities_kb, cancel_object_creation_kb, confirm_object_creation_kb, city_objects_kb, my_objects_kb, place_kb, app_cities_kb, quick_search_kb, cancel_search_kb
@@ -23,7 +24,7 @@ STUB = "Раздел в разработке"
 NOT_REGISTERED = "Сначала зарегистрируйтесь: /start"
 OUTDATED = "Кнопка устарела, откройте /menu"
 PAGE_SIZE = 5
-MAX_OBJECTS = 6
+MAX_OBJECTS = 5
 
 NO_CREATED_OBJECTS_TEXT = """У вас пока нет созданных объектов. хотите создать новый?"""
 
@@ -233,11 +234,11 @@ async def object_set_price(message: MessageCreated, fsm_context: FSMContext, ses
 # Быстрый поиск: ввод ID
 @router.message_created(StateFilter(SEARCH_ID))
 async def search_by_id(message: MessageCreated, fsm_context: FSMContext, session: SessionDep) -> None:
-    text = (message.text or "").strip()
-    if not text.isdigit():
+    place_id = (message.text or "").strip().split(":")[-1] # принимаем и 15, и object:15
+    if not place_id.isdigit():
         await message.answer("Введите ID цифрами", keyboard=cancel_search_kb())
         return
-    await send_found_place(message, int(text), fsm_context, session)
+    await send_found_place(message, int(place_id), fsm_context, session)
 
 # Быстрый поиск: фото QR-кода (в QR лежит id объекта или object:{id})
 @router.message_created(StateFilter(SEARCH_QR))
@@ -292,11 +293,11 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
             await fsm_context.set_state(NO_CREATED_OBJECTS)
             await cb.edit_message(text=NO_CREATED_OBJECTS_TEXT, keyboard=no_created_objects_kb())
 
-    elif payload == "menu:change":
+    elif payload == "menu:change": # смотреть объекты: выбор города
         await fsm_context.clear()
         await cb.edit_message(text="Выберите город:", keyboard=app_cities_kb())
 
-    elif payload == "search:menu":
+    elif payload == "search:menu": # быстрый поиск
         await fsm_context.clear()
         await cb.edit_message(text="🔍 Быстрый поиск", keyboard=quick_search_kb())
 
@@ -350,7 +351,16 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
                 await cb.callback_answer(notification=OUTDATED)
                 return
             text, photos = await place_card(place, session)
-            await cb.edit_message(text=text, attachments=photos, keyboard=place_kb())
+            await cb.edit_message(text=text, attachments=photos, keyboard=place_kb(place.id, place.user_id == user.id))
+
+    elif payload.startswith("qr:"): # QR-код своего объекта
+        place = await db.get_place_by_id(int(payload.split(":")[1]), session)
+        if not place or place.user_id != user.id:
+            await cb.callback_answer(notification=OUTDATED)
+            return
+        qr = BufferedInputFile.image(utils.make_qr(f"object:{place.id}"), f"object_{place.id}.png")
+        await cb.send_message(text=f"QR-код объекта {place.id}", media=[qr])
+        await cb.callback_answer(notification="QR-код отправлен")
 
     elif payload.startswith("city:"): # city:{city} или city:{city}:{page}
         parts = payload.split(":")
@@ -419,7 +429,8 @@ async def unknown_message(message: MessageCreated, session: SessionDep) -> None:
 async def place_card(place: Place, session: SessionDep):
     owner = await db.get_user_by_id(place.user_id, session)
     photos = [PhotoAttachmentRequest(payload=PhotoAttachmentRequestPayload(token=t)) for t in place.photo.split(",") if t]
-    text = f"""Адрес: {place.address}
+    text = f"""ID: {place.id}
+Адрес: {place.address}
 Цена: {int(place.cost)} ₽
 Описание: {place.description}
 Документы: {place.url_documents}
@@ -436,4 +447,4 @@ async def send_found_place(message: MessageCreated, place_id: int, fsm_context: 
         return
     await fsm_context.clear()
     text, photos = await place_card(place, session)
-    await message.answer(text=text, attachments=photos, keyboard=place_kb())
+    await message.answer(text=text, attachments=photos, keyboard=place_kb(place.id, place.user_id == message.user_id))

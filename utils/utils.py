@@ -1,3 +1,5 @@
+import io
+import qrcode
 import cv2
 import uuid
 from pathlib import Path
@@ -38,3 +40,9 @@ def read_qr(path):
     image = cv2.imread(str(path))
     data, _, _ = cv2.QRCodeDetector().detectAndDecode(image)
     return data
+
+# Создаёт QR-код с текстом
+def make_qr(text):
+    buffer = io.BytesIO()
+    qrcode.make(text).save(buffer)
+    return buffer.getvalue()

@@ -147,3 +147,11 @@ def cancel_search_kb():
         .add_callback(text="Отмена", payload="search:menu")
         .build()
     )
+
+# Клавиатура карточки объекта (is_owner - своя карточка, показываем кнопку QR-кода)
+def place_kb(place_id, is_owner):
+    kb = KeyboardBuilder()
+    if is_owner:
+        kb.add_callback(text="Создать QR-код", payload=f"qr:{place_id}")
+    kb.add_callback(text="В меню", payload="menu:main")
+    return kb.adjust(1).build()
