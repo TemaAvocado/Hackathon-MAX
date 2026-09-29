@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?Заполните DB_USER в .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Заполните DB_PASSWORD в .env}
+      POSTGRES_DB: ${DB_NAME:?Заполните DB_NAME в .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?Заполните BOT_TOKEN в .env}
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

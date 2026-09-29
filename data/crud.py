@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from data.models import User, Place, SavedObject
 from utils.parsers import normalize_phone
@@ -63,8 +63,43 @@ async def get_user_saved_places(id: int, session: SessionDep):
     if not await exists(await get_user_by_id(id, session)):
         return "Error"
 
-    result = await session.execute(select(Place).where(SavedObject.user_id == id))
+    result = await session.execute(
+        select(Place)
+        .join(SavedObject, SavedObject.object_id == Place.id)
+        .where(SavedObject.user_id == id)
+        .order_by(SavedObject.id)
+    )
     return result.scalars().all()
+
+# Запись избранного пользователя по объекту
+async def get_saved_object(user_id: int, place_id: int, session: SessionDep) -> SavedObject | None:
+    result = await session.execute(
+        select(SavedObject).where(SavedObject.user_id == user_id, SavedObject.object_id == place_id)
+    )
+    return result.scalars().first()
+
+# Объект в избранном у пользователя - проверка
+async def is_place_saved(user_id: int, place_id: int, session: SessionDep) -> bool:
+    return await exists(await get_saved_object(user_id, place_id, session))
+
+# Добавить объект в избранное
+async def add_saved_place(user_id: int, place_id: int, session: SessionDep):
+    if await is_place_saved(user_id, place_id, session):
+        return "Error"
+
+    session.add(SavedObject(user_id=user_id, object_id=place_id))
+    await session.commit()
+    return None
+
+# Убрать объект из избранного
+async def remove_saved_place(user_id: int, place_id: int, session: SessionDep):
+    saved = await get_saved_object(user_id, place_id, session)
+    if not await exists(saved):
+        return "Error"
+
+    await session.delete(saved)
+    await session.commit()
+    return None
 
 # Получить все объекты пользователя
 async def get_user_places(id: int, session: SessionDep):
@@ -90,7 +125,7 @@ async def get_all_addresses(session: SessionDep):
     return result.scalars()
 
 # Выбор объекта по id
-async def get_place_by_id(id: int, session: SessionDep) -> User | None:
+async def get_place_by_id(id: int, session: SessionDep) -> Place | None:
     return await session.get(Place, id)
 
 # Добавить объект
@@ -108,11 +143,13 @@ async def get_city_places(city: str, session: SessionDep):
     result = await session.execute(select(Place).where(Place.city == city))
     return result.scalars().all()
 
-# Удалить объект
-async def delete_place(place: Place, session: SessionDep):
-    if not await exists(await get_place_by_id(place.id, session)):
+# Удалить объект (сначала убираем его из избранного у всех, иначе не даст внешний ключ)
+async def delete_place(place_id: int, session: SessionDep):
+    place = await get_place_by_id(place_id, session)
+    if not await exists(place):
         return "Error"
 
+    await session.execute(delete(SavedObject).where(SavedObject.object_id == place_id))
     await session.delete(place)
     await session.commit()
     return None

@@ -62,7 +62,7 @@ def confirm_object_creation_kb():
         .build()
     )
 
-# Клавиатура выбора города (по идее можно использовать не только для создания объекта)
+# Клавиатура выбора города
 def cities_kb():
     return (
         KeyboardBuilder()
@@ -78,20 +78,11 @@ def cities_kb():
         .build()
     )
 
-# Клавиатура карточки объекта
-def place_kb():
-    return (
-        KeyboardBuilder()
-        .add_callback(text="В меню", payload="menu:main")
-        .add_callback(text="Удалить", payload="object:delete")
-        .build()
-    )
-
 # Клавиатура объектов города: по кнопке на объект + вперед/назад
 def city_objects_kb(places, city, page, pages_count):
     kb = KeyboardBuilder()
     for place in places:
-        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}")
+        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}:city:{city}:{page}")
     kb.adjust(1)
 
     nav = KeyboardBuilder()
@@ -108,13 +99,13 @@ def city_objects_kb(places, city, page, pages_count):
 def my_objects_kb(places, can_create):
     kb = KeyboardBuilder()
     for place in places:
-        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}")
+        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}:menu:objects")
     if can_create:
         kb.add_callback(text="Создать новый", payload="object:new")
     kb.add_callback(text="В меню", payload="menu:main")
     return kb.adjust(1).build()
 
-# Клавиатура выбора города для просмотра объектов (копия cities_kb + быстрый поиск)
+# Клавиатура выбора города для просмотра объектов
 def app_cities_kb():
     return (
         KeyboardBuilder()
@@ -135,8 +126,8 @@ def app_cities_kb():
 def quick_search_kb():
     return (
         KeyboardBuilder()
-        .add_callback(text="Поиск по ID", payload="search:id")
-        .add_callback(text="Сканировать QR-код", payload="search:qr")
+        .add_callback(text="✏️ Поиск по ID", payload="search:id")
+        .add_callback(text="📷 Сканировать QR-код", payload="search:qr")
         .add_callback(text="Назад", payload="menu:change")
         .adjust(1)
         .build()
@@ -150,10 +141,41 @@ def cancel_search_kb():
         .build()
     )
 
-# Клавиатура карточки объекта (is_owner - своя карточка, показываем кнопку QR-кода)
-def place_kb(place_id, is_owner):
+# Клавиатура карточки объекта
+def place_kb(place_id, is_owner, is_saved=False, back="menu:main"):
     kb = KeyboardBuilder()
     if is_owner:
-        kb.add_callback(text="Создать QR-код", payload=f"qr:{place_id}")
+        kb.add_callback(text="🖼️ Создать QR-код", payload=f"qr:{place_id}")
+        kb.add_callback(text="🗑️ Удалить", payload=f"object:delete:{place_id}")
+    elif is_saved:
+        kb.add_callback(text="💔 Убрать из избранного", payload=f"fav:remove:{place_id}:{back}")
+    else:
+        kb.add_callback(text="❤️ Добавить в избранное", payload=f"fav:add:{place_id}:{back}")
+    if back != "menu:main":
+        kb.add_callback(text="Назад", payload=back)
     kb.add_callback(text="В меню", payload="menu:main")
     return kb.adjust(1).build()
+
+# Клавиатура нет обьектов
+def no_city_places_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Назад", payload="menu:change")
+        .build()
+    )
+
+# Клавиатура избранного
+def favorites_kb(places):
+    kb = KeyboardBuilder()
+    for place in places:
+        kb.add_callback(text=f"{place.address} — {int(place.cost)} ₽", payload=f"object:{place.id}:menu:favorites")
+    kb.add_callback(text="В меню", payload="menu:main")
+    return kb.adjust(1).build()
+
+# Кнопка в меню
+def back_to_menu_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="В меню", payload="menu:main")
+        .build()
+    )

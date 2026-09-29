@@ -15,11 +15,11 @@ def parse_field(field: str, text: str | None) -> tuple[str | None, str]:
     text = (text or "").strip()
     if field == "phone":
         phone = normalize_phone(text)
-        return (phone, "") if phone else (None, "Введите номер в формате +79991234567")
+        return (phone, "") if phone else (None, "Введите номер в формате +7ХХХХХХХХХХ")
     if not text:
-        return None, "Отправьте текстом"
-    if len(text) > 64:
-        return None, "Максимум 64 символа"
+        return None, "🤖 Отправьте боту текст."
+    if len(text) > 512:
+        return None, "Максимум 512 символов"
     return text, ""
 
 def md(value) -> str:

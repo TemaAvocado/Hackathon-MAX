@@ -1,0 +1,35 @@
+# Секреты
+.env
+.env.*
+!.env.example
+
+# Git и IDE
+.git
+.gitignore
+.vscode/
+.idea/
+*.iml
+
+# Виртуальное окружение и кеш
+venv/
+env/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Данные и логи
+users_files/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Прочее
+.DS_Store
+Thumbs.db
+dist/
+build/
+*.egg-info/
+README.md
