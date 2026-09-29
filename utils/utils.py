@@ -1,3 +1,4 @@
+import cv2
 import uuid
 from pathlib import Path
 import aiohttp
@@ -31,3 +32,9 @@ async def download(attachment, path):
                 return final_path
             else:
                 return "api error"
+
+# Читает QR-код с картинки
+def read_qr(path):
+    image = cv2.imread(str(path))
+    data, _, _ = cv2.QRCodeDetector().detectAndDecode(image)
+    return data
