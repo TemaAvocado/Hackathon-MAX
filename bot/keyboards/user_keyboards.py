@@ -113,3 +113,47 @@ def my_objects_kb(places, can_create):
         kb.add_callback(text="Создать новый", payload="object:new")
     kb.add_callback(text="В меню", payload="menu:main")
     return kb.adjust(1).build()
+
+# Клавиатура выбора города для просмотра объектов (копия cities_kb + быстрый поиск)
+def app_cities_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="🔍 Быстрый поиск", payload="search:menu")
+        .add_callback(text="Москва", payload="city:moscow")
+        .add_callback(text="Санкт-Петербург", payload="city:SPetersburg")
+        .add_callback(text="Екатеринбург", payload="city:Yekaterinburg")
+        .add_callback(text="Новосибирск", payload="city:Novosibirsk")
+        .add_callback(text="Калининград", payload="city:Kaliningrad")
+        .add_callback(text="Казань", payload="city:Kazan")
+        .add_callback(text="Краснодар", payload="city:Krasnodar")
+        .add_callback(text="В меню", payload="menu:main")
+        .adjust(1)
+        .build()
+    )
+
+# Клавиатура быстрого поиска
+def quick_search_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Поиск по ID", payload="search:id")
+        .add_callback(text="Сканировать QR-код", payload="search:qr")
+        .add_callback(text="Назад", payload="menu:change")
+        .adjust(1)
+        .build()
+    )
+
+# Кнопка отмены при быстром поиске
+def cancel_search_kb():
+    return (
+        KeyboardBuilder()
+        .add_callback(text="Отмена", payload="search:menu")
+        .build()
+    )
+
+# Клавиатура карточки объекта (is_owner - своя карточка, показываем кнопку QR-кода)
+def place_kb(place_id, is_owner):
+    kb = KeyboardBuilder()
+    if is_owner:
+        kb.add_callback(text="Создать QR-код", payload=f"qr:{place_id}")
+    kb.add_callback(text="В меню", payload="menu:main")
+    return kb.adjust(1).build()
