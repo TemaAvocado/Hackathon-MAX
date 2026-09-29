@@ -4,7 +4,7 @@ from pathlib import Path
 from maxo import Router
 from maxo.fsm import FSMContext, StateFilter
 from maxo.routing.filters import Command, CommandStart
-from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, MediaAttachmentsRequests
+from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload
 from maxo.enums import TextFormat
 from maxo.utils.upload_media import BufferedInputFile
 
@@ -350,17 +350,21 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
             if not place:
                 await cb.callback_answer(notification=OUTDATED)
                 return
-            text, photos = await place_card(place, session)
-            await cb.edit_message(text=text, attachments=photos, keyboard=place_kb(place.id, place.user_id == user.id))
+            owner = await db.get_user_by_id(place.user_id, session)
+            photos = [PhotoAttachmentRequest(payload=PhotoAttachmentRequestPayload(token=t)) for t in place.photo.split(",") if t]
+            await fsm_context.update_data(place=place)
+            await cb.edit_message(text=f"""Адрес: {place.address}
+Цена: {int(place.cost)} ₽
+Описание: {place.description}
+Документы: {place.url_documents}
 
-    elif payload.startswith("qr:"): # QR-код своего объекта
-        place = await db.get_place_by_id(int(payload.split(":")[1]), session)
-        if not place or place.user_id != user.id:
-            await cb.callback_answer(notification=OUTDATED)
-            return
-        qr = BufferedInputFile.image(utils.make_qr(f"object:{place.id}"), f"object_{place.id}.png")
-        await cb.send_message(text=f"QR-код объекта {place.id}", media=[qr])
-        await cb.callback_answer(notification="QR-код отправлен")
+Владелец: {owner.name}
+Телефон: {owner.phone_number}""", attachments=photos, keyboard=place_kb())
+        if field == "delete":
+            place = await fsm_context.get_value("place")
+            await db.delete_place(place, session)
+            await fsm_context.clear()
+            await cb.edit_message(text=MAIN_MENU_TEXT, keyboard=main_menu_kb(), format=TextFormat.MARKDOWN)
 
     elif payload.startswith("city:"): # city:{city} или city:{city}:{page}
         parts = payload.split(":")

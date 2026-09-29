@@ -53,6 +53,7 @@ def no_created_objects_kb():
         .build()
     )
 
+# Клавиатура подтверждения создания объектов
 def confirm_object_creation_kb():
     return (
         KeyboardBuilder()
@@ -82,6 +83,7 @@ def place_kb():
     return (
         KeyboardBuilder()
         .add_callback(text="В меню", payload="menu:main")
+        .add_callback(text="Удалить", payload="object:delete")
         .build()
     )
 

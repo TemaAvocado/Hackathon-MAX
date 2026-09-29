@@ -107,3 +107,12 @@ async def create_place(place: Place, session: SessionDep):
 async def get_city_places(city: str, session: SessionDep):
     result = await session.execute(select(Place).where(Place.city == city))
     return result.scalars().all()
+
+# Удалить объект
+async def delete_place(place: Place, session: SessionDep):
+    if not await exists(await get_place_by_id(place.id, session)):
+        return "Error"
+
+    await session.delete(place)
+    await session.commit()
+    return None
