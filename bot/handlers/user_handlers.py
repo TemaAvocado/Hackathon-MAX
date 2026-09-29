@@ -4,7 +4,7 @@ from pathlib import Path
 from maxo import Router
 from maxo.fsm import FSMContext, StateFilter
 from maxo.routing.filters import Command, CommandStart
-from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload, UploadEndpoint, FileAttachmentRequest, MediaAttachmentsRequests
+from maxo.types import BotStarted, MessageCallback, MessageCreated, PhotoAttachmentRequest, PhotoAttachmentRequestPayload
 from maxo.enums import TextFormat
 
 from ..states.user_states import REG_NAME, REG_PHONE, REG_CITY, EDIT, NO_CREATED_OBJECTS, OBJECT_SET_CITY, OBJECT_SET_ADDRESS, OBJECT_SET_DESCRIPTION, OBJECT_LOAD_PHOTO, OBJECT_LOAD_DOCUMENTS, OBJECT_SET_PRICE, OBJECT_CONFIRM
@@ -312,6 +312,7 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
                 return
             owner = await db.get_user_by_id(place.user_id, session)
             photos = [PhotoAttachmentRequest(payload=PhotoAttachmentRequestPayload(token=t)) for t in place.photo.split(",") if t]
+            await fsm_context.update_data(place=place)
             await cb.edit_message(text=f"""Адрес: {place.address}
 Цена: {int(place.cost)} ₽
 Описание: {place.description}
@@ -319,6 +320,11 @@ async def on_callback(cb: MessageCallback, fsm_context: FSMContext, session: Ses
 
 Владелец: {owner.name}
 Телефон: {owner.phone_number}""", attachments=photos, keyboard=place_kb())
+        if field == "delete":
+            place = await fsm_context.get_value("place")
+            await db.delete_place(place, session)
+            await fsm_context.clear()
+            await cb.edit_message(text=MAIN_MENU_TEXT, keyboard=main_menu_kb(), format=TextFormat.MARKDOWN)
 
     elif payload.startswith("city:"): # city:{city} или city:{city}:{page}
         parts = payload.split(":")
